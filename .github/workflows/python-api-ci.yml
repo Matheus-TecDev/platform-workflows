@@ -1,0 +1,82 @@
+name: Python API CI
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version used by the CI job
+        required: false
+        type: string
+        default: "3.12"
+      working-directory:
+        description: Directory containing the Python API
+        required: false
+        type: string
+        default: "."
+      requirements-file:
+        description: Path to the runtime requirements file, relative to the working directory
+        required: false
+        type: string
+        default: requirements.txt
+      dev-requirements-file:
+        description: Optional development requirements file, relative to the working directory
+        required: false
+        type: string
+        default: requirements-dev.txt
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, format, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Check out consumer repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate dependency files
+        env:
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
+            echo "::error::Required dependency file not found: $REQUIREMENTS_FILE"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.working-directory }}/${{ inputs.requirements-file }}
+            ${{ inputs.working-directory }}/${{ inputs.dev-requirements-file }}
+
+      - name: Install dependencies
+        env:
+          DEV_REQUIREMENTS_FILE: ${{ inputs.dev-requirements-file }}
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --requirement "$REQUIREMENTS_FILE"
+          if [[ -f "$DEV_REQUIREMENTS_FILE" ]]; then
+            python -m pip install --requirement "$DEV_REQUIREMENTS_FILE"
+          fi
+
+      - name: Run Ruff lint
+        run: python -m ruff check .
+
+      - name: Check Ruff formatting
+        run: python -m ruff format --check .
+
+      - name: Run tests
+        run: python -m pytest
