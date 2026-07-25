@@ -1,0 +1,23 @@
+name: React Web CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  react-ci:
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/react-web-ci.yml@REPLACE_WITH_FULL_COMMIT_SHA
+    with:
+      node-version: "22"
+      working-directory: frontend
+      install-command: npm ci
+      lint-command: npm run lint
+      test-command: ""
+      build-command: npm run build
+      artifact-path: dist
+      upload-artifact: false

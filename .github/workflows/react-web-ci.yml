@@ -1,0 +1,105 @@
+name: React Web CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version used by the CI job
+        required: false
+        type: string
+        default: "22"
+      working-directory:
+        description: Directory containing the React/Vite application
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: Command used to install npm dependencies
+        required: false
+        type: string
+        default: npm ci
+      lint-command:
+        description: Required lint command
+        required: false
+        type: string
+        default: npm run lint
+      test-command:
+        description: Optional test command; an empty value skips tests
+        required: false
+        type: string
+        default: ""
+      build-command:
+        description: Required production build command
+        required: false
+        type: string
+        default: npm run build
+      artifact-path:
+        description: Build output path, relative to the working directory
+        required: false
+        type: string
+        default: dist
+      upload-artifact:
+        description: Upload the production build as an artifact
+        required: false
+        type: boolean
+        default: false
+      artifact-name:
+        description: Name of the uploaded build artifact
+        required: false
+        type: string
+        default: react-web-dist
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Check out consumer repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -Eeuo pipefail -c "$INSTALL_COMMAND"
+
+      - name: Run lint
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: bash -Eeuo pipefail -c "$LINT_COMMAND"
+
+      - name: Run tests
+        if: ${{ inputs.test-command != '' }}
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -Eeuo pipefail -c "$TEST_COMMAND"
+
+      - name: Build production application
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: bash -Eeuo pipefail -c "$BUILD_COMMAND"
+
+      - name: Upload production build
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/${{ inputs.artifact-path }}
+          if-no-files-found: error
+          retention-days: 7

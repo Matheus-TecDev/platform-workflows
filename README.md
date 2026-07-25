@@ -4,8 +4,9 @@
 projects. It keeps common automation consistent while allowing each application to
 own its dependencies and source-specific configuration.
 
-Only reusable CI for Python APIs is implemented today. React CI, security scanning,
-container publishing, and deployment are not current capabilities.
+Reusable CI contracts are implemented for Python APIs and React/Vite web
+applications. Security scanning, container publishing, and deployment are not
+current capabilities.
 
 ## Python API CI
 
@@ -65,12 +66,67 @@ jobs:
 
 Only pass inputs that differ from, or intentionally document, the defaults.
 
+## React/Vite Web CI
+
+The reusable workflow at
+[`.github/workflows/react-web-ci.yml`](.github/workflows/react-web-ci.yml) supports
+React/Vite applications using Node.js, npm, and a committed `package-lock.json`.
+It checks out the consumer, restores setup-node's native npm cache, runs
+installation and lint, optionally runs an explicitly configured test command,
+builds the production application, and optionally uploads only the declared build
+output.
+
+### Consumer contract
+
+The workflow accepts these inputs:
+
+| Input | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `node-version` | string | `22` | Node.js version used by the job |
+| `working-directory` | string | `.` | Directory containing the application and lockfile |
+| `install-command` | string | `npm ci` | Reproducible dependency installation |
+| `lint-command` | string | `npm run lint` | Required lint command |
+| `test-command` | string | empty | Optional test command; empty means no suite is configured and skips the step |
+| `build-command` | string | `npm run build` | Required production build |
+| `artifact-path` | string | `dist` | Build output path relative to `working-directory` |
+| `upload-artifact` | boolean | `false` | Whether to upload the build output |
+| `artifact-name` | string | `react-web-dist` | Uploaded artifact name |
+
+`package-lock.json` must exist directly inside `working-directory`; it is used by
+both `npm ci` and the npm cache. Commands run in `working-directory`.
+`artifact-path` is also relative to that directory. When upload is enabled, a
+missing artifact fails the job and the artifact is retained for seven days.
+
+The command inputs are trusted CI code maintained by the consumer repository, not
+untrusted user input. They are passed through environment variables to Bash and
+are not evaluated with `eval`. Callers should keep workflow-edit permissions
+restricted and must not interpolate untrusted event data into these inputs.
+
+### Usage
+
+Copy [`examples/react-web.yml`](examples/react-web.yml) into the consumer
+repository. It demonstrates an application in `frontend/`. Replace
+`REPLACE_WITH_FULL_COMMIT_SHA` with the published 40-character commit SHA:
+
+```yaml
+jobs:
+  react-ci:
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/react-web-ci.yml@REPLACE_WITH_FULL_COMMIT_SHA
+    with:
+      working-directory: frontend
+      test-command: ""
+```
+
+The placeholder is intentional: this example is configuration documentation and
+is not executable until the implementation is published and the reference is
+replaced. Do not use `main`; no `v1` alias exists yet.
+
 ## Security
 
-The workflow grants read-only access to repository contents, receives no secrets,
-and uses only official GitHub actions pinned to full commit SHAs. Lint, formatting,
-and test commands are fixed rather than caller-controlled, so the workflow is not
-a generic shell executor.
+The workflows grant read-only access to repository contents, receive no secrets,
+and use only official GitHub actions pinned to full commit SHAs. The Python
+workflow uses fixed quality commands. React workflow command inputs are trusted
+configuration controlled by the consumer repository.
 
 ## Versioning
 
@@ -81,15 +137,17 @@ introduced only after compatibility and update practices have proven stable.
 
 ## Current limitations
 
-- Dependency installation supports pip requirements files only.
-- CI targets Python APIs and runs on GitHub-hosted Ubuntu runners.
-- The workflow does not collect coverage, scan security, build images, publish
-  artifacts, or deploy applications.
+- Python API dependency installation supports pip requirements files only.
+- React web CI supports npm only, requires a lockfile, and does not discover
+  missing lint or test scripts.
+- CI runs on GitHub-hosted Ubuntu runners and does not collect coverage, scan
+  security, build images, publish containers, or deploy applications.
+- React build artifact upload is optional; other workflows do not publish
+  artifacts.
 
 ## Roadmap
 
-1. Validate Python API CI in Sentinel using an immutable reference.
-2. Add React CI when a real consumer integration is ready.
-3. Add security scanning.
-4. Add Docker image build and publication.
-5. Add deployment only when a real environment is available for validation.
+1. Validate React/Vite Web CI in a real consumer using an immutable reference.
+2. Add security scanning.
+3. Add Docker image build and publication.
+4. Add deployment only when a real environment is available for validation.
