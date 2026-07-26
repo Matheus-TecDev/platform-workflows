@@ -5,8 +5,9 @@ projects. It keeps common automation consistent while allowing each application 
 own its dependencies and source-specific configuration.
 
 Reusable CI contracts are implemented for Python APIs and React/Vite web
-applications. Security scanning, container publishing, and deployment are not
-current capabilities.
+applications. Both have been validated in a real consumer. Security scanning and
+container publishing are planned but not implemented; deployment is outside the
+v1 scope.
 
 ## Python API CI
 
@@ -135,6 +136,46 @@ real integration succeeds, an immutable SemVer release such as `v1.0.0` can prov
 a human-readable exact version. A movable major alias such as `v1` should be
 introduced only after compatibility and update practices have proven stable.
 
+## Real-world validation
+
+[Sentinel](https://github.com/Matheus-TecDev/Sentinel) is the first real consumer
+of these reusable workflows. Its integrations use immutable, full 40-character
+commit SHAs:
+
+- Python API CI was integrated in
+  [`f57eaa612f598aba7dc941acd353af86be28f730`](https://github.com/Matheus-TecDev/Sentinel/commit/f57eaa612f598aba7dc941acd353af86be28f730),
+  referencing `python-api-ci.yml@b4ec59acecdabe9bc18efe0f0de18b92f2ba49c7`.
+- React/Vite Web CI was integrated in
+  [`593333ce872b23763a4cb73194ff1c21f86b4d4d`](https://github.com/Matheus-TecDev/Sentinel/commit/593333ce872b23763a4cb73194ff1c21f86b4d4d),
+  referencing `react-web-ci.yml@55e78600eda5a676b08227d85c0398f864f8bd3a`.
+
+The complete
+[Sentinel GitHub Actions run](https://github.com/Matheus-TecDev/Sentinel/actions/runs/30163835829)
+finished successfully after rerunning a transient PostgreSQL image pull failure.
+It proved the backend quality gates, frontend lint and production build, backend
+integration with PostgreSQL, Sentinel's existing Docker build and publication,
+and Docker Compose validation. Sentinel explicitly declared that no frontend test
+suite was configured with `test-command: ""`, and kept artifact upload disabled
+with `upload-artifact: false`.
+
+The reusable CI jobs preserved the consumer pipeline's other jobs, dependencies,
+and execution flow. This validation completes **Scope 1 — Reusable CI
+Foundation**.
+
+## Planned v1.0.0 scope
+
+The planned first stable release has four capabilities:
+
+1. **Python API CI** — implemented and validated.
+2. **React/Vite Web CI** — implemented and validated.
+3. **Security Scan** — planned and not yet implemented.
+4. **Docker Build and Publish to GHCR** — planned and not yet implemented.
+
+Docker Publish means building the image, scanning it, and pushing it to GitHub
+Container Registry (GHCR). It does not include deployment. Deployment to EC2,
+production, or any other environment is outside v1. Neither `v1.0.0` nor the `v1`
+alias has been published.
+
 ## Current limitations
 
 - Python API dependency installation supports pip requirements files only.
@@ -147,7 +188,22 @@ introduced only after compatibility and update practices have proven stable.
 
 ## Roadmap
 
-1. Validate React/Vite Web CI in a real consumer using an immutable reference.
-2. Add security scanning.
-3. Add Docker image build and publication.
-4. Add deployment only when a real environment is available for validation.
+1. Implement Security Scan.
+2. Document and validate Security Scan in Sentinel using a full commit SHA.
+3. Implement Docker Build and Publish to GHCR.
+4. Document and validate Docker Publish in Sentinel using a full commit SHA.
+5. Review permissions, actions pinned to full commit SHAs, contracts, and
+   documentation.
+6. Validate the complete v1 scope.
+7. Publish `v1.0.0` and establish the `v1` alias.
+8. Migrate Sentinel from validation SHAs to `@v1`.
+
+### Future evolution outside v1
+
+Potential capabilities outside v1 include Node.js API CI, Flutter CI, controlled
+EC2 deployment with Docker Compose, advanced supply-chain security such as
+CodeQL, SBOMs, attestations, and signing, plus release automation and governance.
+Go API CI is also deferred until a real consumer exists.
+
+New capabilities will only be implemented when a real consumer is available for
+validation.
