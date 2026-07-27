@@ -1,0 +1,134 @@
+name: Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory scanned for dependency vulnerabilities and misconfigurations
+        required: false
+        type: string
+        default: "."
+      severity:
+        description: Comma-separated severities that fail Trivy scans
+        required: false
+        type: string
+        default: HIGH,CRITICAL
+      scan-secrets:
+        description: Enable Gitleaks scanning across the complete Git history
+        required: false
+        type: boolean
+        default: true
+      scan-vulnerabilities:
+        description: Enable Trivy filesystem vulnerability scanning
+        required: false
+        type: boolean
+        default: true
+      scan-misconfigurations:
+        description: Enable Trivy Dockerfile and infrastructure-as-code scanning
+        required: false
+        type: boolean
+        default: true
+      ignore-unfixed:
+        description: Ignore vulnerabilities that do not have an available fix
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate scan configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require at least one scanner
+        env:
+          SCAN_MISCONFIGURATIONS: ${{ inputs.scan-misconfigurations }}
+          SCAN_SECRETS: ${{ inputs.scan-secrets }}
+          SCAN_VULNERABILITIES: ${{ inputs.scan-vulnerabilities }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$SCAN_SECRETS" == "false" &&
+                "$SCAN_VULNERABILITIES" == "false" &&
+                "$SCAN_MISCONFIGURATIONS" == "false" ]]; then
+            echo "::error::At least one security scanner must be enabled."
+            exit 1
+          fi
+
+  secrets:
+    name: Detect secrets in Git history
+    if: ${{ inputs.scan-secrets }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out complete consumer history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        env:
+          GITLEAKS_ARCHIVE_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+          GITLEAKS_VERSION: 8.28.0
+        run: |
+          set -Eeuo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          install_dir="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$install_dir"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_ARCHIVE_SHA256}  ${archive}" | sha256sum --check
+          tar --extract --gzip --file "$archive" --directory "$install_dir" gitleaks
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Scan complete Git history for secrets
+        run: |
+          set -Eeuo pipefail
+          gitleaks git --redact --exit-code 1 --no-banner .
+
+  vulnerabilities:
+    name: Scan dependency vulnerabilities
+    if: ${{ inputs.scan-vulnerabilities }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out consumer repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Scan filesystem for dependency vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: table
+          exit-code: "1"
+          version: v0.70.0
+
+  misconfigurations:
+    name: Scan Dockerfile and IaC misconfigurations
+    if: ${{ inputs.scan-misconfigurations }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out consumer repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Scan configuration for misconfigurations
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: misconfig
+          severity: ${{ inputs.severity }}
+          format: table
+          exit-code: "1"
+          version: v0.70.0
