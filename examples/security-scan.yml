@@ -1,0 +1,14 @@
+name: Security Scan
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/security-scan.yml@25a2735378c5e6782b42a8bf80feb3310ebf254e

@@ -5,9 +5,9 @@ projects. It keeps common automation consistent while allowing each application 
 own its dependencies and source-specific configuration.
 
 Reusable CI contracts are implemented for Python APIs and React/Vite web
-applications. Both have been validated in a real consumer. Security scanning and
-container publishing are planned but not implemented; deployment is outside the
-v1 scope.
+applications. Both have been validated in a real consumer. Security scanning is
+implemented and awaiting real-world validation. Container publishing is planned
+but not implemented; deployment is outside the v1 scope.
 
 ## Python API CI
 
@@ -122,6 +122,64 @@ The placeholder is intentional: this example is configuration documentation and
 is not executable until the implementation is published and the reference is
 replaced. Do not use `main`; no `v1` alias exists yet.
 
+## Security Scan
+
+The reusable workflow at
+[`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml)
+provides blocking security checks for secrets, dependency vulnerabilities, and
+configuration weaknesses. Consumers call it through `workflow_call` with
+read-only access to repository contents and no secrets.
+
+The enabled scanners run as independent jobs after contract validation, so they
+can execute in parallel. All three scanners are enabled by default, and at least
+one must remain enabled. The workflow fails with an explicit configuration error
+if all three are disabled.
+
+### Scanners
+
+1. **Secrets:** Gitleaks checks the consumer's complete Git history, independently
+   of `working-directory`. It redacts detected secret values from output and
+   blocks the pipeline when it finds a leak.
+2. **Vulnerabilities:** Trivy filesystem scans dependencies under
+   `working-directory`, applies `severity` and `ignore-unfixed`, and blocks the
+   pipeline when a vulnerability violates the configured policy.
+3. **Misconfigurations:** Trivy config scans supported Dockerfiles and
+   infrastructure-as-code files under `working-directory`, applies `severity`,
+   and blocks the pipeline when a misconfiguration violates the policy.
+
+### Consumer contract
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `working-directory` | `string` | `.` | Path scanned by Trivy for vulnerabilities and misconfigurations |
+| `severity` | `string` | `HIGH,CRITICAL` | Severities that cause Trivy scans to fail |
+| `scan-secrets` | `boolean` | `true` | Enables Gitleaks scanning across the Git history |
+| `scan-vulnerabilities` | `boolean` | `true` | Enables Trivy filesystem vulnerability scanning |
+| `scan-misconfigurations` | `boolean` | `true` | Enables Trivy configuration scanning |
+| `ignore-unfixed` | `boolean` | `true` | Ignores vulnerabilities without an available fix |
+
+Copy [`examples/security-scan.yml`](examples/security-scan.yml) into the consumer
+repository for a minimal configuration that uses all defaults. Override inputs
+only when the consumer needs a different policy:
+
+```yaml
+jobs:
+  security:
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/security-scan.yml@25a2735378c5e6782b42a8bf80feb3310ebf254e
+    with:
+      working-directory: .
+      severity: CRITICAL
+      scan-secrets: true
+      scan-vulnerabilities: true
+      scan-misconfigurations: true
+      ignore-unfixed: true
+```
+
+Current validation is static and local. This reusable workflow has not yet run in
+a real consumer; it will be integrated and validated in Sentinel using a full
+commit SHA. It does not generate or upload SARIF, run CodeQL, produce SBOMs or
+attestations, sign artifacts, publish images, or deploy applications.
+
 ## Security
 
 The workflows grant read-only access to repository contents, receive no secrets,
@@ -168,7 +226,7 @@ The planned first stable release has four capabilities:
 
 1. **Python API CI** — implemented and validated.
 2. **React/Vite Web CI** — implemented and validated.
-3. **Security Scan** — planned and not yet implemented.
+3. **Security Scan** — implemented, awaiting real-world validation.
 4. **Docker Build and Publish to GHCR** — planned and not yet implemented.
 
 Docker Publish means building the image, scanning it, and pushing it to GitHub
@@ -181,22 +239,21 @@ alias has been published.
 - Python API dependency installation supports pip requirements files only.
 - React web CI supports npm only, requires a lockfile, and does not discover
   missing lint or test scripts.
-- CI runs on GitHub-hosted Ubuntu runners and does not collect coverage, scan
-  security, build images, publish containers, or deploy applications.
+- CI runs on GitHub-hosted Ubuntu runners and does not collect coverage, build
+  images, publish containers, or deploy applications.
 - React build artifact upload is optional; other workflows do not publish
   artifacts.
 
 ## Roadmap
 
-1. Implement Security Scan.
-2. Document and validate Security Scan in Sentinel using a full commit SHA.
-3. Implement Docker Build and Publish to GHCR.
-4. Document and validate Docker Publish in Sentinel using a full commit SHA.
-5. Review permissions, actions pinned to full commit SHAs, contracts, and
+1. Document and validate Security Scan in Sentinel using a full commit SHA.
+2. Implement Docker Build and Publish to GHCR.
+3. Document and validate Docker Publish in Sentinel using a full commit SHA.
+4. Review permissions, actions pinned to full commit SHAs, contracts, and
    documentation.
-6. Validate the complete v1 scope.
-7. Publish `v1.0.0` and establish the `v1` alias.
-8. Migrate Sentinel from validation SHAs to `@v1`.
+5. Validate the complete v1 scope.
+6. Publish `v1.0.0` and establish the `v1` alias.
+7. Migrate Sentinel from validation SHAs to `@v1`.
 
 ### Future evolution outside v1
 
