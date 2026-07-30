@@ -6,8 +6,8 @@ own its dependencies and source-specific configuration.
 
 Reusable CI contracts are implemented for Python APIs and React/Vite web
 applications. Both have been validated in a real consumer. Security scanning is
-implemented and awaiting real-world validation. Container publishing is planned
-but not implemented; deployment is outside the v1 scope.
+implemented and awaiting real-world validation. Docker image publishing to GHCR
+is implemented and documented for validation; deployment is outside the v1 scope.
 
 ## Python API CI
 
@@ -180,12 +180,145 @@ a real consumer; it will be integrated and validated in Sentinel using a full
 commit SHA. It does not generate or upload SARIF, run CodeQL, produce SBOMs or
 attestations, sign artifacts, publish images, or deploy applications.
 
+## Docker Publish
+
+The reusable workflow at
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
+builds one local Docker image, scans that local image with Trivy in blocking
+mode, and publishes to GitHub Container Registry only for `push` events on
+`refs/heads/main`. Pull requests and any other context run build and scan only;
+they do not log in to GHCR and do not publish an image.
+
+Publication uses the same local image that passed the scan. The workflow tags the
+image as `sha-<full 40-character commit SHA>`, pushes that tag, resolves the
+remote digest, and exposes the remote digest plus immutable image reference as
+outputs. It does not publish `latest`, abbreviated SHAs, branch names, semantic
+versions, or multiple tags.
+
+### Consumer contract
+
+The reusable workflow has only `workflow_call`; `pull_request` and `push` events
+belong to the consumer workflow. Pin the call to the published full commit SHA:
+
+```yaml
+uses: Matheus-TecDev/platform-workflows/.github/workflows/docker-publish.yml@729836ae9c9b001051c4f4a46d60ef37f87f5380
+```
+
+The workflow requires exactly these inputs:
+
+| Input | Required | Description |
+| --- | ---: | --- |
+| `context` | yes | Docker build context |
+| `dockerfile` | yes | Dockerfile path relative to the consumer repository |
+| `image-name` | yes | Full GHCR image name without a tag or digest |
+
+Example `image-name`: `ghcr.io/matheus-tecdev/example-api`.
+
+`image-name` is rejected when it is empty, outside `ghcr.io`, contains a tag,
+contains a digest, or is incompatible with the implemented image-reference
+validation.
+
+The workflow declares no `workflow_call` secrets, does not require a PAT, and
+does not use `GHCR_TOKEN`. GHCR authentication uses `github.token`. No
+credential is passed to `docker build`, and login occurs only after Trivy passes.
+Do not use `secrets: inherit` for this workflow.
+
+### Events and permissions
+
+For pull requests and other non-publication contexts, grant read-only contents
+access:
+
+```yaml
+permissions:
+  contents: read
+```
+
+That path runs:
+
+```text
+checkout -> build -> scan
+```
+
+For `push` to `main`, the consumer must also grant package write access:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+```
+
+That path runs:
+
+```text
+checkout -> single build -> scan -> login -> push same image -> remote digest
+```
+
+The reusable workflow cannot elevate permissions that the caller did not grant.
+Any blocking Trivy failure prevents GHCR login and push.
+
+### Image metadata and scan policy
+
+The published tag format is:
+
+```text
+ghcr.io/owner/image:sha-0123456789abcdef0123456789abcdef01234567
+```
+
+The build adds these OCI labels:
+
+| Label | Value source |
+| --- | --- |
+| `org.opencontainers.image.source` | `github.server_url` and `github.repository` from the caller |
+| `org.opencontainers.image.revision` | caller `github.sha` |
+| `org.opencontainers.image.created` | UTC build timestamp |
+| `org.opencontainers.image.title` | final path component of `image-name` |
+
+Trivy scans the local image with this policy:
+
+```text
+scanners=vuln
+severity=HIGH,CRITICAL
+ignore-unfixed=true
+exit-code=1
+```
+
+The scan is blocking. The image is not rebuilt after scanning; only the same
+approved local image can be pushed.
+
+### Outputs
+
+| Output | Description |
+| --- | --- |
+| `digest` | Remote published digest in `sha256:...` format |
+| `image-reference` | Immutable reference in `image@sha256:...` format |
+
+Both outputs are populated only when publication occurs. They can remain empty in
+pull requests and other contexts without a push to `main`. The digest is the
+remote registry digest, not the local Docker image ID.
+
+When using a publish-only caller job such as
+[`examples/docker-publish.yml`](examples/docker-publish.yml), later jobs can read
+the immutable reference with:
+
+```yaml
+needs:
+  - docker-publish
+steps:
+  - run: echo "${{ needs.docker-publish.outputs.image-reference }}"
+```
+
+Current limits are intentional scope boundaries: no deploy, multiple platforms,
+configurable cache, `latest`, semantic tags, SBOM, provenance, attestations,
+signing, Cosign, or SARIF publication.
+
 ## Security
 
 The workflows grant read-only access to repository contents, receive no secrets,
 and use only official GitHub actions pinned to full commit SHAs. The Python
 workflow uses fixed quality commands. React workflow command inputs are trusted
-configuration controlled by the consumer repository.
+configuration controlled by the consumer repository. Docker Publish authenticates
+to GHCR with `github.token` only after the image has passed the blocking local
+scan.
 
 ## Versioning
 
@@ -227,28 +360,28 @@ The planned first stable release has four capabilities:
 1. **Python API CI** — implemented and validated.
 2. **React/Vite Web CI** — implemented and validated.
 3. **Security Scan** — implemented, awaiting real-world validation.
-4. **Docker Build and Publish to GHCR** — planned and not yet implemented.
+4. **Docker Build and Publish to GHCR** — implemented, awaiting real-world validation.
 
 Docker Publish means building the image, scanning it, and pushing it to GitHub
-Container Registry (GHCR). It does not include deployment. Deployment to EC2,
-production, or any other environment is outside v1. Neither `v1.0.0` nor the `v1`
-alias has been published.
+Container Registry (GHCR) only on `push` to `main`. It does not include
+deployment. Deployment to EC2, production, or any other environment is outside
+v1. Neither `v1.0.0` nor the `v1` alias has been published.
 
 ## Current limitations
 
 - Python API dependency installation supports pip requirements files only.
 - React web CI supports npm only, requires a lockfile, and does not discover
   missing lint or test scripts.
-- CI runs on GitHub-hosted Ubuntu runners and does not collect coverage, build
-  images, publish containers, or deploy applications.
+- CI runs on GitHub-hosted Ubuntu runners and does not collect coverage or
+  deploy applications.
 - React build artifact upload is optional; other workflows do not publish
   artifacts.
 
 ## Roadmap
 
 1. Document and validate Security Scan in Sentinel using a full commit SHA.
-2. Implement Docker Build and Publish to GHCR.
-3. Document and validate Docker Publish in Sentinel using a full commit SHA.
+2. Document Docker Build and Publish to GHCR.
+3. Validate Docker Publish in Sentinel using a full commit SHA.
 4. Review permissions, actions pinned to full commit SHAs, contracts, and
    documentation.
 5. Validate the complete v1 scope.

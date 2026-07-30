@@ -1,0 +1,29 @@
+name: Docker Publish
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  docker-validate:
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+    permissions:
+      contents: read
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/docker-publish.yml@729836ae9c9b001051c4f4a46d60ef37f87f5380
+    with:
+      context: .
+      dockerfile: ./Dockerfile
+      image-name: ghcr.io/${{ github.repository_owner }}/example-api
+
+  docker-publish:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: Matheus-TecDev/platform-workflows/.github/workflows/docker-publish.yml@729836ae9c9b001051c4f4a46d60ef37f87f5380
+    with:
+      context: .
+      dockerfile: ./Dockerfile
+      image-name: ghcr.io/${{ github.repository_owner }}/example-api
