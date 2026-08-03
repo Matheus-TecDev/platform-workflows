@@ -5,9 +5,9 @@ projects. It keeps common automation consistent while allowing each application 
 own its dependencies and source-specific configuration.
 
 Reusable CI contracts are implemented for Python APIs and React/Vite web
-applications. Both have been validated in a real consumer. Security scanning is
-implemented and awaiting real-world validation. Docker image publishing to GHCR
-is implemented and documented for validation; deployment is outside the v1 scope.
+applications. Security scanning and Docker image publishing to GHCR are also
+implemented. All four planned v1 reusable workflows have been validated in a
+real consumer. Deployment is outside the v1 scope.
 
 ## Python API CI
 
@@ -175,10 +175,15 @@ jobs:
       ignore-unfixed: true
 ```
 
-Current validation is static and local. This reusable workflow has not yet run in
-a real consumer; it will be integrated and validated in Sentinel using a full
-commit SHA. It does not generate or upload SARIF, run CodeQL, produce SBOMs or
-attestations, sign artifacts, publish images, or deploy applications.
+This reusable workflow was validated in Sentinel through
+`.github/workflows/security.yml`, which calls
+`security-scan.yml@4741c2c5a01a194a0caa3f066d9433e278173660` with the default
+inputs, `contents: read`, and no secrets. Successful pull request and `main`
+push runs executed contract validation, Gitleaks secret scanning, Trivy
+filesystem vulnerability scanning, and Trivy configuration scanning.
+
+It does not generate or upload SARIF, run CodeQL, produce SBOMs or attestations,
+sign artifacts, publish images, or deploy applications.
 
 ## Docker Publish
 
@@ -350,6 +355,11 @@ commit SHAs:
 - React/Vite Web CI was integrated in
   [`593333ce872b23763a4cb73194ff1c21f86b4d4d`](https://github.com/Matheus-TecDev/Sentinel/commit/593333ce872b23763a4cb73194ff1c21f86b4d4d),
   referencing `react-web-ci.yml@55e78600eda5a676b08227d85c0398f864f8bd3a`.
+- Security Scan was integrated in
+  [`c45b4f2563b5366cfdbeac97d613b3b2b44c1812`](https://github.com/Matheus-TecDev/Sentinel/commit/c45b4f2563b5366cfdbeac97d613b3b2b44c1812),
+  referencing `security-scan.yml@4741c2c5a01a194a0caa3f066d9433e278173660`.
+  Later successful Security workflow runs executed all default scanner jobs in
+  the reusable workflow.
 - Docker Publish was validated in Sentinel with pull requests running build and
   Trivy without publication, and pushes to `main` running build, Trivy, and GHCR
   publication with `GITHUB_TOKEN` and no custom credentials.
@@ -373,7 +383,7 @@ The planned first stable release has four capabilities:
 
 1. **Python API CI** — implemented and validated.
 2. **React/Vite Web CI** — implemented and validated.
-3. **Security Scan** — implemented, awaiting real-world validation.
+3. **Security Scan** — implemented and validated.
 4. **Docker Build and Publish to GHCR** — implemented and validated.
 
 Docker Publish means building the image, scanning it, and pushing it to GitHub
@@ -393,12 +403,11 @@ v1. Neither `v1.0.0` nor the `v1` alias has been published.
 
 ## Roadmap
 
-1. Document and validate Security Scan in Sentinel using a full commit SHA.
-2. Review permissions, actions pinned to full commit SHAs, contracts, and
-   documentation.
-3. Validate the complete v1 scope.
-4. Publish `v1.0.0` and establish the `v1` alias.
-5. Migrate Sentinel from validation SHAs to `@v1`.
+The complete planned v1 workflow scope has been implemented, documented, and
+validated in Sentinel. Remaining release steps:
+
+1. Publish `v1.0.0` and establish the `v1` alias.
+2. Migrate Sentinel from validation SHAs to `@v1`.
 
 ### Future evolution outside v1
 
