@@ -198,25 +198,27 @@ versions, or multiple tags.
 ### Consumer contract
 
 The reusable workflow has only `workflow_call`; `pull_request` and `push` events
-belong to the consumer workflow. Pin the call to the published full commit SHA:
+belong to the consumer workflow. During validation, pin the call to a published
+full 40-character commit SHA:
 
 ```yaml
 uses: Matheus-TecDev/platform-workflows/.github/workflows/docker-publish.yml@729836ae9c9b001051c4f4a46d60ef37f87f5380
 ```
 
-The workflow requires exactly these inputs:
+The workflow exposes exactly these public inputs:
 
-| Input | Required | Description |
-| --- | ---: | --- |
-| `context` | yes | Docker build context |
-| `dockerfile` | yes | Dockerfile path relative to the consumer repository |
-| `image-name` | yes | Full GHCR image name without a tag or digest |
+| Input | Type | Required | Default | Description |
+| --- | --- | ---: | --- | --- |
+| `context` | `string` | yes | none | Docker build context |
+| `dockerfile` | `string` | yes | none | Dockerfile path relative to the consumer repository |
+| `image-name` | `string` | yes | none | Full GHCR image name without a tag or digest |
 
 Example `image-name`: `ghcr.io/matheus-tecdev/example-api`.
 
 `image-name` is rejected when it is empty, outside `ghcr.io`, contains a tag,
 contains a digest, or is incompatible with the implemented image-reference
-validation.
+validation. The implemented validation accepts lowercase GHCR names only; use
+lowercase owner, organization, repository, and image path components.
 
 The workflow declares no `workflow_call` secrets, does not require a PAT, and
 does not use `GHCR_TOKEN`. GHCR authentication uses `github.token`. No
@@ -225,21 +227,23 @@ Do not use `secrets: inherit` for this workflow.
 
 ### Events and permissions
 
-For pull requests and other non-publication contexts, grant read-only contents
-access:
+The reusable workflow decides whether to validate or publish from the caller's
+event context:
+
+| Caller event context | Internal job | Behavior |
+| --- | --- | --- |
+| `pull_request` | `validate` | Check out, validate inputs, build the local image, and run the blocking Trivy image scan. No GHCR login or publication occurs. |
+| Any event other than `push` to `refs/heads/main` | `validate` | Same validation-only path as pull requests. |
+| `push` to `refs/heads/main` | `publish` | Check out, validate inputs, build the local image, run the blocking Trivy image scan, log in to GHCR, push the scanned image, resolve the remote digest, and set outputs. |
+
+For validation-only contexts, the reusable job uses read-only contents access:
 
 ```yaml
 permissions:
   contents: read
 ```
 
-That path runs:
-
-```text
-checkout -> build -> scan
-```
-
-For `push` to `main`, the consumer must also grant package write access:
+For `push` to `main`, the publish job also needs package write access:
 
 ```yaml
 permissions:
@@ -253,8 +257,15 @@ That path runs:
 checkout -> single build -> scan -> login -> push same image -> remote digest
 ```
 
-The reusable workflow cannot elevate permissions that the caller did not grant.
-Any blocking Trivy failure prevents GHCR login and push.
+The reusable workflow cannot elevate permissions that the caller did not grant,
+so consumer workflows that expect to publish must make `packages: write`
+available to the calling job or workflow. Any blocking Trivy failure prevents
+GHCR login and push.
+
+If the GHCR package already exists and is not automatically linked to the
+consumer repository, GitHub may reject publication even with `GITHUB_TOKEN`. In
+that case, grant the consumer repository `Write` access in the package settings:
+`Package settings -> Manage Actions access`.
 
 ### Image metadata and scan policy
 
@@ -296,15 +307,15 @@ Both outputs are populated only when publication occurs. They can remain empty i
 pull requests and other contexts without a push to `main`. The digest is the
 remote registry digest, not the local Docker image ID.
 
-When using a publish-only caller job such as
+When using a caller job such as
 [`examples/docker-publish.yml`](examples/docker-publish.yml), later jobs can read
-the immutable reference with:
+the immutable reference with the relevant job id:
 
 ```yaml
 needs:
-  - docker-publish
+  - backend
 steps:
-  - run: echo "${{ needs.docker-publish.outputs.image-reference }}"
+  - run: echo "${{ needs.backend.outputs.image-reference }}"
 ```
 
 Current limits are intentional scope boundaries: no deploy, multiple platforms,
@@ -339,6 +350,9 @@ commit SHAs:
 - React/Vite Web CI was integrated in
   [`593333ce872b23763a4cb73194ff1c21f86b4d4d`](https://github.com/Matheus-TecDev/Sentinel/commit/593333ce872b23763a4cb73194ff1c21f86b4d4d),
   referencing `react-web-ci.yml@55e78600eda5a676b08227d85c0398f864f8bd3a`.
+- Docker Publish was validated in Sentinel with pull requests running build and
+  Trivy without publication, and pushes to `main` running build, Trivy, and GHCR
+  publication with `GITHUB_TOKEN` and no custom credentials.
 
 The complete
 [Sentinel GitHub Actions run](https://github.com/Matheus-TecDev/Sentinel/actions/runs/30163835829)
@@ -360,7 +374,7 @@ The planned first stable release has four capabilities:
 1. **Python API CI** — implemented and validated.
 2. **React/Vite Web CI** — implemented and validated.
 3. **Security Scan** — implemented, awaiting real-world validation.
-4. **Docker Build and Publish to GHCR** — implemented, awaiting real-world validation.
+4. **Docker Build and Publish to GHCR** — implemented and validated.
 
 Docker Publish means building the image, scanning it, and pushing it to GitHub
 Container Registry (GHCR) only on `push` to `main`. It does not include
@@ -380,13 +394,11 @@ v1. Neither `v1.0.0` nor the `v1` alias has been published.
 ## Roadmap
 
 1. Document and validate Security Scan in Sentinel using a full commit SHA.
-2. Document Docker Build and Publish to GHCR.
-3. Validate Docker Publish in Sentinel using a full commit SHA.
-4. Review permissions, actions pinned to full commit SHAs, contracts, and
+2. Review permissions, actions pinned to full commit SHAs, contracts, and
    documentation.
-5. Validate the complete v1 scope.
-6. Publish `v1.0.0` and establish the `v1` alias.
-7. Migrate Sentinel from validation SHAs to `@v1`.
+3. Validate the complete v1 scope.
+4. Publish `v1.0.0` and establish the `v1` alias.
+5. Migrate Sentinel from validation SHAs to `@v1`.
 
 ### Future evolution outside v1
 
